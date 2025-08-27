@@ -1,47 +1,56 @@
-# Install if not available
-!pip install pandas matplotlib prophet openpyxl
-
+import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 from prophet import Prophet
+import matplotlib.pyplot as plt
 
-# Load your dataset
-file_path = "/content/AI & DS Enrolled Students Course .xlsx"
-df = pd.read_excel(file_path, sheet_name="All Enrolled (2)")
+st.set_page_config(page_title="Student Forecasting Dashboard", layout="wide")
 
-# Make sure Admit Semester column exists
-print(df.columns)
+st.title("📈 Student Enrollment Forecasting")
 
-# Count students per Admit Semester
-df_counts = df.groupby("Admit Semester").size().reset_index(name="Students")
+# File uploader
+uploaded_file = st.file_uploader("Upload Excel file with 'Admit Semester' column", type=["xlsx"])
 
-# Clean Admit Semester -> approximate date
-def semester_to_date(x):
-    term, years = x.split()
-    start, end = years.split("-")
-    start = int("20" + start)
-    end = int("20" + end)
-    if term == "Fall":
-        return f"{start}-09-01"
-    elif term == "Spring":
-        return f"{end}-02-01"
-    elif term == "Summer":
-        return f"{end}-06-01"
-    else:
-        return None
+if uploaded_file:
+    df = pd.read_excel(uploaded_file, sheet_name="All Enrolled (2)")
+    
+    # Aggregate enrollments per Admit Semester
+    df_counts = df.groupby("Admit Semester").size().reset_index(name="Students")
+    
+    # Convert Admit Semester to date
+    def semester_to_date(x):
+        term, years = x.split()
+        start, end = years.split("-")
+        start = int("20" + start)
+        end = int("20" + end)
+        if term == "Fall":
+            return f"{start}-09-01"
+        elif term == "Spring":
+            return f"{end}-02-01"
+        elif term == "Summer":
+            return f"{end}-06-01"
+        else:
+            return None
+    
+    df_counts["ds"] = pd.to_datetime(df_counts["Admit Semester"].apply(semester_to_date))
+    df_counts = df_counts.rename(columns={"Students": "y"}).sort_values("ds")
 
-df_counts["ds"] = pd.to_datetime(df_counts["Admit Semester"].apply(semester_to_date))
-df_counts = df_counts.rename(columns={"Students": "y"})
-df_counts = df_counts.sort_values("ds")
+    # Forecast horizon
+    horizon = st.slider("Forecast horizon (months)", min_value=3, max_value=24, value=12)
 
-# Prophet model
-m = Prophet(yearly_seasonality=True, seasonality_mode="additive")
-m.fit(df_counts)
+    # Prophet model
+    m = Prophet(yearly_seasonality=True)
+    m.fit(df_counts)
 
-future = m.make_future_dataframe(periods=6, freq="M")  # forecast 6 months (≈ 2 semesters)
-forecast = m.predict(future)
+    future = m.make_future_dataframe(periods=horizon, freq="M")
+    forecast = m.predict(future)
 
-# Plot
-fig1 = m.plot(forecast)
-plt.title("Forecast of Student Enrollments")
-plt.show()
+    # Plot
+    st.subheader("Enrollment Forecast")
+    fig1 = m.plot(forecast)
+    st.pyplot(fig1)
+
+    # Show forecast data
+    st.subheader("Forecasted Values")
+    st.dataframe(forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(horizon))
+else:
+    st.info("Upload a dataset to begin forecasting.")
